@@ -1,45 +1,57 @@
 # Capture NP (`capture-app-np`) — Architecture & Upstream Upgrade Guide
 
-This repository maintains **Capture NP**, a custom Nepal distribution of DHIS2 Capture (`coreApp: false`, title `"Capture NP"`, custom UUID `c4f7a91e-8d2b-4f63-9a5c-7e1b3d0f82a4`), organized so that future upstream `dhis2/capture-app` upgrades require minimal conflict resolution and zero manual re-branding.
+This repository maintains **Capture NP**, a custom Nepal overlay distribution of DHIS2 Capture (`coreApp: false`, title `"Capture NP"`, custom App Hub ID `c4f7a91e-8d2b-4f63-9a5c-7e1b3d0f82a4`). Instead of maintaining a full fork of 100,000+ lines of upstream `dhis2/capture-app`, this repo stores only Nepal-specific modules, branding assets, and automated overlay hooks.
 
 ---
 
 ## 1. Directory Layout
 
-All Nepal-specific code, configuration, assets, and release automation live in two dedicated top-level folders:
-
 ```text
-src/nepal/                                # Runtime Nepal extension (aliased as 'capture-nepal')
-├── index.ts                              # Public barrel export
-├── config/
-│   └── nepalConfig.ts                    # Typed branding metadata & feature flags
-└── calendar/
-    ├── index.ts
-    ├── nepaliDate.ts                     # BS <-> AD conversion, validation, format support
-    └── NepaliDateAddon.component.tsx     # Right-side BS button + floating top-right BS pill + popover
+src/
+├── nepal/                                # Runtime Nepal extension (aliased as 'capture-nepal')
+│   ├── index.ts                          # Public barrel export
+│   ├── extensionEntry.ts                 # Standalone runtime bundle entrypoint (esbuild target)
+│   ├── config/
+│   │   └── nepalConfig.ts                # Typed branding metadata & feature flags
+│   ├── runtime/
+│   │   └── extensionHost.ts              # Host React/@dhis2/ui bridge + NepalDateAddonBridge
+│   └── calendar/
+│       ├── index.ts
+│       ├── nepaliDate.ts                 # BS <-> AD conversion, validation, format support
+│       └── NepaliDateAddon.component.tsx # Right-side BS button + floating top-right BS pill + popover
+└── core_modules/                         # Reference copies of patched upstream hook files
+    ├── capture-ui/DateAndTimeFields/DateField/Date.component.tsx
+    └── capture-core-utils/hash/hashSHA256.ts
 
-nepal/                                    # Build, branding & upgrade automation
-├── branding.json                         # Single source of truth for app ID, title, icon, upstream tag
+nepal/                                    # Overlay, branding, preview & verification automation
+├── branding.json                         # Single source of truth for app ID, title, icon, upstream repo/tag
 ├── assets/
-│   └── app-icon.png                      # Master Nepal Capture icon (125x125 PNG)
+│   └── app-icon.png                      # Master Nepal Capture icon (PNG)
 ├── scripts/
+│   ├── applyOverlayToBase.mjs            # Clones/caches upstream tag, stages .nepal-workspace, applies hooks & builds
 │   ├── applyBranding.mjs                 # Idempotent stamper: d2.config.js, package.json, manifest, icons, i18n
-│   ├── verifyIntegration.mjs             # Checks aliases, 6 thin hooks, BS<->AD roundtrips, and --zip bundle
-│   └── upgradeUpstream.sh                # Automated upstream DHIS2 Capture tag merge & build script
+│   ├── buildExtension.mjs                # Compiles src/nepal/** -> nepal-extension.js + meta.json (<0.5s)
+│   ├── buildFast.mjs                     # ~1.5-2s incremental Nepal-only rebuild reusing cached workspace build/app
+│   ├── buildRulesEngineCached.mjs        # Content-hashed cache wrapper for packages/rules-engine
+│   ├── standalonePreview.mjs             # Serves full DHIS2 testing preview, /__dhis2 proxy, live ext & /api/bundles
+│   └── verifyIntegration.mjs             # Verifies branding, aliases, hooks, BS<->AD roundtrips & --zip contents
 └── UPGRADE_GUIDE.md                      # This guide
 
+public/                                   # Committed prebuilt ZIP + .sha256 for instant `npm run dev` startup
 .github/workflows/
-└── release-capture-app-np.yml            # Builds, verifies, and attaches DHIS2 ZIP to GitHub Releases
+└── release-capture-app-np.yml            # Builds, verifies, and attaches DHIS2 ZIP + .sha256 to GitHub Releases
 ```
+
+> **Note on `.gitignore`**: `.nepal-cache/` (cached upstream clone + `node_modules`) and `.nepal-workspace/` (staged full Capture app build directory) are gitignored and must **never** be committed to GitHub.
 
 ---
 
-## 2. Thin Upstream Hook Points (Only 6 Core Files)
+## 2. Thin Upstream Hook Points (Applied Automatically)
 
-Upstream `dhis2/capture-app` files are kept untouched except for 6 tiny, auditable hooks (all checked automatically by `npm run nepal:verify`):
+During `npm run overlay` / `npm run build:full`, `nepal/scripts/applyOverlayToBase.mjs` patches only a small, auditable set of upstream `dhis2/capture-app` files inside `.nepal-workspace/` (all checked automatically by `nepal/scripts/verifyIntegration.mjs`):
 
-| # | Core File | Purpose |
-|---|-----------|---------|
+| # | Core File (in staged workspace) | Purpose |
+| --- | --- | --- |
 | 0 | `src/index.tsx` | Calls `ensureNepalExtensionLoaded()` at startup to register the host bridge and preload `nepal-extension.js` |
 | 1 | `src/core_modules/capture-ui/DateAndTimeFields/DateField/Date.component.tsx` | Imports `NepalDateAddonBridge` from `'capture-nepal/runtime/extensionHost'` and wraps `<CalendarInput>` |
 | 2 | `src/core_modules/capture-ui/DateAndTimeFields/DateField/Date.types.ts` | Adds optional `hideNepaliPicker?: boolean` prop |
@@ -48,88 +60,90 @@ Upstream `dhis2/capture-app` files are kept untouched except for 6 tiny, auditab
 | 5 | `src/core_modules/capture-core/storageControllers/mainStorageController.ts` | Fallback `DHIS2_CACHE_VERSION` (`'4'`) so IndexedDB never opens with `NaN` |
 | 6 | `src/core_modules/capture-core-utils/hash/hashSHA256.ts` | Pure-JS SHA-256 fallback for HTTP (non-HTTPS) local/LAN DHIS2 deployments |
 
-Branding files (`d2.config.js`, `package.json` name, `public/manifest.json`, `public/dhis2-app-icon.png`, favicons, and `__MANIFEST_APP_TITLE` in `i18n/*.pot`/`*.po`) are **never merged by hand** — `npm run nepal:brand` regenerates them deterministically from `nepal/branding.json` and `nepal/assets/app-icon.png`.
+Branding files (`d2.config.js`, workspace `package.json` name/cacheVersion, `public/manifest.json`, `public/dhis2-app-icon.png`, favicons, and `__MANIFEST_APP_TITLE` in `i18n/*.pot`/`*.po`) are never edited manually—`nepal/scripts/applyBranding.mjs` regenerates them deterministically from `nepal/branding.json` and `nepal/assets/app-icon.png`.
 
 ---
 
-## 2B. Fast ~2–3s Nepal-Only Rebuilds (Skipping Unchanged Capture Core)
+## 3. Development, Preview & Build Workflows
 
-Because `DateField` loads `nepal-extension.js` through the runtime host bridge (`src/nepal/runtime/extensionHost.ts`), you only run `npm run build:zip` **once per upstream DHIS2 Capture version**.
+### Instant Local DHIS2 Preview (`npm run dev`)
 
-Whenever you edit anything under `src/nepal/**`, `nepal/branding.json`, or `nepal/assets/app-icon.png`, run:
+`npm run dev` runs Vite on `0.0.0.0:3000` with `nepal/scripts/standalonePreview.mjs`:
 
-```bash
-npm run nepal:build-fast
-```
+1. Loads the prebuilt Capture NP app from the newest `*.zip` in `dist/` or `public/` in memory without mutating the release ZIP on disk.
+2. Enables `@dhis2/app-adapter` standalone testing mode (blank **Server**, **Username**, and **Password** login modal) and strips `<base target="_top" />` for iframe safety.
+3. Routes requests to external DHIS2 servers through a transparent same-origin proxy (`/__dhis2/<base64url-server>/*`) with iframe-compatible `Set-Cookie` rewriting (`SameSite=None; Secure`), eliminating CORS and third-party cookie failures.
+4. Intercepts `/nepal-extension.js` and `/nepal-extension.meta.json` and live-compiles `src/nepal/**` via `esbuild` whenever Nepal source files change (<0.5s).
+5. Exposes untouched, checksum-verified release ZIP downloads at `/api/bundles` and `/api/bundles/<filename>`.
 
-This recompiles **only** `src/nepal/**` with `esbuild` (~0.3s), updates branding/icons and cache-busting metadata, repacks `build/bundle/capture-app-np-<version>.zip`, and verifies the ZIP in ~2–3 seconds total—without touching the 7,300+ unchanged Capture modules.
+### Overlay Builds (`build:full` vs. `build:fast`)
 
-### Building Directly From the Upstream Capture Git Repo (or a Local Directory)
+- **One-time full build per upstream version**:
+  ```bash
+  npm run build:full
+  ```
+  Shallow-clones `upstreamRepo` at `upstreamBaseTag` into `.nepal-cache/upstream-base/`, stages `.nepal-workspace/`, installs dependencies, injects workspace scripts (`nepal:brand`, `nepal:build-ext`, `nepal:build-fast`, `nepal:verify`, `build:zip`), builds Capture NP, runs `verifyIntegration.mjs --zip`, and copies `dist/capture-app-np-<version>.zip`.
+- **Fast ~1.5–2s Nepal-only incremental rebuild**:
+  ```bash
+  npm run build:fast
+  ```
+  Once `.nepal-workspace/build/app/index.html` exists, syncs only `src/nepal/**` and `nepal/**`, recompiles `nepal-extension.js` via `esbuild`, refreshes branding/icons, repacks the ZIP, runs full ZIP verification, and copies the updated ZIP to `dist/`—skipping all 7,300+ unchanged Capture core modules.
+- **Extension-only build**:
+  ```bash
+  npm run build:ext
+  ```
+  Compiles only `src/nepal/extensionEntry.ts` into `dist/nepal-extension.js` + `dist/nepal-extension.meta.json`.
 
-To maintain a tiny Nepal-only GitHub repository (zero upstream Capture core files committed):
-1. Generate or download the clean template via `npm run nepal:export-repo` (outputs `nepal-repo-template/` and `build/bundle/capture-app-np-overlay-repo.zip`).
-2. Push that clean template to GitHub. `nepal/branding.json` already defines `upstreamRepo` (`https://github.com/dhis2/capture-app.git`) and `upstreamBaseTag` (`v107.9.3`), so you simply run:
-   ```bash
-   npm install
-   npm run build:full   # Clones & caches upstream tag once, overlays Nepal changes, builds ZIP
-   npm run build:fast   # ~1.5s after any Nepal feature change (zero network/core rebuild)
+---
+
+## 4. Upgrading to a New DHIS2 Capture Release
+
+When DHIS2 publishes a new Capture version (for example `v108.0.0`):
+
+1. Update `upstreamBaseTag` in `nepal/branding.json`:
+   ```json
+   "upstreamBaseTag": "v108.0.0"
    ```
-   You can also override the Git repo/tag anytime (`--repo <git-url> --tag <tag>` or `CAPTURE_BASE_REPO` / `CAPTURE_BASE_TAG`), or point to an existing local checkout (`--base /path/to/capture-app`).
-
----
-
-## 3. Upgrading to a New DHIS2 Capture Release
-
-When DHIS2 releases a new Capture version (for example `v108.0.0`):
-
-```bash
-npm run nepal:upgrade -- v108.0.0
-```
-
-What the script does automatically:
-1. Fetches tags from `upstream` (`https://github.com/dhis2/capture-app.git`).
-2. Creates an upgrade branch `upgrade/v108.0.0` and merges `v108.0.0`.
-3. Auto-resolves branding/i18n conflicts (`i18n/*`, `public/*`, `d2.config.js`) in favor of upstream because `nepal:brand` re-stamps them cleanly.
-4. Updates `upstreamBaseTag` in `nepal/branding.json`.
-5. Runs `npm install` → `npm run nepal:brand` → `npm run nepal:verify` → `npm run lint` → `npm run build:zip` → ZIP verification.
-
-If upstream refactored one of the 6 hook files and Git pauses with a conflict:
-1. Resolve only the listed source file(s), preserving the thin hook from the table above.
-2. Stage your resolution (`git add <file>`).
-3. Run:
+2. Run a full overlay build & verification locally:
    ```bash
-   npm install && npm run nepal:brand && npm run nepal:verify && npm run lint && npm run build:zip && node nepal/scripts/verifyIntegration.mjs --zip
+   npm run build:full
    ```
-4. Commit the merge.
+3. **If upstream refactored one of the hook files** and `applyOverlayToBase.mjs` or `verifyIntegration.mjs` reports a missed patch:
+   - Inspect the target file inside `.nepal-workspace/src/...`.
+   - Update the corresponding patch regex in `nepal/scripts/applyOverlayToBase.mjs` (or reference file under `src/core_modules/`).
+   - Re-run `npm run build:full` until all verification checks pass.
+4. Refresh the committed preview ZIP in `public/` so `npm run dev` boots the upgraded Capture base immediately:
+   ```bash
+   rm -f public/capture-app-np-*.zip public/capture-app-np-*.zip.sha256
+   cp dist/capture-app-np-108.0.0.zip public/
+   sha256sum dist/capture-app-np-108.0.0.zip | awk '{print $1 "  capture-app-np-108.0.0.zip"}' > public/capture-app-np-108.0.0.zip.sha256
+   ```
+5. Run `npm run lint` and `npm run build` to verify TypeScript and the standalone preview build, then commit your changes.
 
 ---
 
-## 4. Publishing a Release ZIP via GitHub Actions
+## 5. Publishing a Release ZIP via GitHub Actions
 
 Push a tag matching `v<upstream-version>-np.<revision>` (for example `v108.0.0-np.1`):
 
 ```bash
 git tag v108.0.0-np.1
-git push origin v108.0.0-np.1
+git push origin main --tags
 ```
 
 `.github/workflows/release-capture-app-np.yml` will automatically:
-- Stamp Nepal branding (`npm run nepal:brand`)
-- Verify all hooks and BS ↔ AD conversions (`npm run nepal:verify`)
-- Typecheck (`npm run lint`)
-- Build `build/bundle/capture-app-np-<version>.zip` (`npm run build:zip`)
-- Inspect the ZIP's `manifest.webapp`, `manifest.webapp.translations.json`, and `dhis2-app-icon.png`
-- Attach the verified `.zip` and `.sha256` checksum to a GitHub Release ready for DHIS2 App Management upload.
-
-You can also trigger a manual build anytime from GitHub Actions via **Run workflow** (`workflow_dispatch`).
+1. Read `upstreamRepo` and `upstreamBaseTag` from `nepal/branding.json` (or accept manual `workflow_dispatch` overrides for `upstream_tag` and `release_tag`).
+2. Run `npm install --no-audit --no-fund`.
+3. Run `npm run build:full -- --repo <upstreamRepo> --tag <upstreamTag>` (cloning upstream, applying the overlay, stamping branding, compiling the app & Nepal extension, and running `verifyIntegration.mjs --zip`).
+4. Compute `dist/capture-app-np-<version>.zip.sha256`, upload both files as workflow artifacts, and attach them to a GitHub Release ready for **DHIS2 App Management → Manual Install**.
 
 ---
 
-## 5. Adding Future Nepal-Specific Features
+## 6. Adding Future Nepal-Specific Features
 
-To keep future Nepal customizations just as clean and upgrade-safe:
+To keep future Nepal customizations isolated and upgrade-safe:
+
 1. Create a dedicated subfolder under `src/nepal/<feature-name>/` (e.g. `src/nepal/wardSelector/`, `src/nepal/healthId/`).
 2. Add a feature flag in `src/nepal/config/nepalConfig.ts` (`NEPAL_FEATURES`).
-3. Re-export the feature from `src/nepal/index.ts`.
-4. Wire it into upstream Capture via a 1–3 line import from `'capture-nepal'` gated by `NEPAL_FEATURES.<flag>`.
-5. Add an assertion for the new hook in `nepal/scripts/verifyIntegration.mjs` so every future upgrade verifies it automatically.
+3. Re-export the feature from `src/nepal/index.ts` and `src/nepal/extensionEntry.ts`.
+4. If the feature needs a new upstream hook point, add a minimal patch in `nepal/scripts/applyOverlayToBase.mjs` and a matching assertion in `nepal/scripts/verifyIntegration.mjs` so every future upgrade verifies it automatically.
