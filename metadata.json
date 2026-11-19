@@ -1,0 +1,5 @@
+{
+  "name": "Capture NP",
+  "description": "Nepal-only overlay repository for DHIS2 Capture NP (BS calendar, custom branding, fast 2s feature rebuilds)",
+  "requestFramePermissions": []
+}

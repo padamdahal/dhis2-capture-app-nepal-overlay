@@ -2,17 +2,27 @@
   "name": "capture-app-np-overlay",
   "version": "1.0.0",
   "private": true,
-  "license": "BSD-3-Clause",
-  "description": "Tiny Nepal-only overlay repository for DHIS2 Capture NP (BS calendar, custom branding, DHIS2 2.41+ update check, ~2s fast rebuilds)",
+  "description": "Nepal-only overlay repository for DHIS2 Capture NP (BS calendar, custom branding, fast 2s feature rebuilds)",
   "scripts": {
-    "check-updates": "node nepal/scripts/syncUpstream.mjs --check",
+    "dev": "vite --host 0.0.0.0 --port 3000",
+    "build": "node nepal/scripts/standalonePreview.mjs --build-dist",
+    "preview": "vite preview --host 0.0.0.0 --port 3000",
+    "lint": "tsc --noEmit",
     "overlay": "node nepal/scripts/applyOverlayToBase.mjs",
     "build:full": "node nepal/scripts/applyOverlayToBase.mjs --build-full",
     "build:fast": "node nepal/scripts/applyOverlayToBase.mjs --build-fast",
     "build:ext": "node nepal/scripts/buildExtension.mjs --out dist"
   },
   "dependencies": {
-    "nepali-date-converter": "^3.4.2"
+    "@dhis2/ui": "^10.21.1",
+    "@types/react": "18",
+    "@types/react-dom": "18",
+    "@vitejs/plugin-react": "^6.3.0",
+    "nepali-date-converter": "^3.4.2",
+    "react": "18",
+    "react-dom": "18",
+    "styled-jsx": "^4",
+    "vite": "^8.3.8"
   },
   "devDependencies": {
     "esbuild": "^0.25.0",

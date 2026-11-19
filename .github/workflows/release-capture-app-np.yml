@@ -1,4 +1,4 @@
-name: Release Capture NP (DHIS2 ZIP)
+name: Release Capture NP (Overlay Build)
 
 on:
   push:
@@ -11,7 +11,7 @@ on:
         required: false
         default: ''
       release_tag:
-        description: 'Optional GitHub Release tag (e.g. v107.9.3-np.1). Leave blank to build artifact only.'
+        description: 'Optional GitHub Release tag (e.g. v107.9.3-np.1)'
         required: false
         default: ''
 
@@ -41,18 +41,10 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "repo=${REPO}" >> "$GITHUB_OUTPUT"
 
-      - name: Cache upstream Capture base clone & node_modules
-        uses: actions/cache@v4
-        with:
-          path: .nepal-cache/upstream-base
-          key: ${{ runner.os }}-capture-base-${{ steps.upstream.outputs.tag }}
-          restore-keys: |
-            ${{ runner.os }}-capture-base-
-
       - name: Install Nepal overlay tooling
         run: npm install --no-audit --no-fund
 
-      - name: Apply Nepal overlay on upstream tag, build Capture NP ZIP & verify
+      - name: Apply Nepal overlay directly from upstream Git tag, build Capture NP ZIP & verify
         run: npm run build:full -- --repo "${{ steps.upstream.outputs.repo }}" --tag "${{ steps.upstream.outputs.tag }}"
 
       - name: Compute checksum & artifact metadata

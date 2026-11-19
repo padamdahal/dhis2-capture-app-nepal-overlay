@@ -6,6 +6,5 @@
   "cacheVersion": "4",
   "iconSource": "nepal/assets/app-icon.png",
   "upstreamRepo": "https://github.com/dhis2/capture-app.git",
-  "upstreamBaseTag": "v107.9.3",
-  "maxMinDHIS2Version": "2.41"
+  "upstreamBaseTag": "v107.9.3"
 }
