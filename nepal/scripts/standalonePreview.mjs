@@ -373,31 +373,11 @@ const PREVIEW_BOOTSTRAP_SCRIPT = `<script>
     toProxyUrl:toProxyUrl,
     fromProxyUrl:normalizeServer
   };
-  // Migrate any previously stored raw external DHIS2 URL to the same-origin proxy URL
   try{
     var cur=window.localStorage.getItem("DHIS2_BASE_URL");
     if(cur && cur.indexOf(P)===-1){
       window.localStorage.setItem("DHIS2_BASE_URL",toProxyUrl(cur));
     }
-  }catch(_e){}
-  try{
-    var req=indexedDB.open("dhis2-base-url-db",1);
-    req.onsuccess=function(ev){
-      try{
-        var db=ev.target.result;
-        if(!db.objectStoreNames.contains("dhis2-base-url-store")) return;
-        var tx=db.transaction("dhis2-base-url-store","readwrite");
-        var store=tx.objectStore("dhis2-base-url-store");
-        var all=store.getAll();
-        all.onsuccess=function(){
-          (all.result||[]).forEach(function(item){
-            if(item && item.baseUrl && item.baseUrl.indexOf(P)===-1){
-              store.put({appName:item.appName,baseUrl:toProxyUrl(item.baseUrl)});
-            }
-          });
-        };
-      }catch(_e){}
-    };
   }catch(_e){}
 })();
 </script>`;
@@ -421,7 +401,9 @@ function patchStandaloneEntries(entries) {
     // 2. Enable standalone testing mode in the served preview bundle:
     //    (a) Default appConfig.url fallback from "../../.." to "" so @dhis2/app-adapter
     //        prompts with its default LoginModal when no server URL is stored yet.
-    //    (b) Restore the Server URL InputField in LoginModal (stripped by production
+    //    (b) Make dhis2-base-url-db opener self-healing (recreates missing object store
+    //        automatically and migrates any raw stored URL through /__dhis2/*).
+    //    (c) Restore the Server URL InputField in LoginModal (stripped by production
     //        dead-code elimination in the DHIS2-installable ZIP), show the clean
     //        human-readable DHIS2 URL, route requests via /__dhis2/<b64url> to
     //        eliminate CORS & third-party iframe cookie failures, and persist it.
@@ -436,6 +418,50 @@ function patchStandaloneEntries(entries) {
             );
             if (nextUrl !== js) {
                 js = nextUrl;
+                changed = true;
+            }
+
+            const idbRe =
+                /const ([A-Za-z_$][\w$]*)="dhis2-base-url-db",([A-Za-z_$][\w$]*)="dhis2-base-url-store",([A-Za-z_$][\w$]*)=1;function ([A-Za-z_$][\w$]*)\(\)\{return ([A-Za-z_$][\w$]*)\(\1,\3,\{upgrade\(([A-Za-z_$][\w$]*),[A-Za-z_$][\w$]*\)\{switch\([A-Za-z_$][\w$]*\)\{case 0:\6\.createObjectStore\(\2,\{keyPath:"appName"\}\);default:console\.debug\("\[sections-db\] Done upgrading DB"\)\}\}\}\)\}async function ([A-Za-z_$][\w$]*)\(\{appName:([A-Za-z_$][\w$]*),baseUrl:([A-Za-z_$][\w$]*)\}\)\{return\(await \4\(\)\)\.put\(\2,\{appName:\8,baseUrl:\9\}\)\}async function ([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*)\)\{return\(await \4\(\)\)\.get\(\2,\11\)\.then\(([A-Za-z_$][\w$]*)=>\12==null\?void 0:\12\.baseUrl\)\}/;
+
+            const nextIdb = js.replace(
+                idbRe,
+                (
+                    _m,
+                    dbConst,
+                    storeConst,
+                    verConst,
+                    openFn,
+                    openDbHelper,
+                    _upDb,
+                    putFn,
+                    appNameArg,
+                    baseUrlArg,
+                    getFn,
+                    getArg,
+                ) =>
+                    `const ${dbConst}="dhis2-base-url-db",${storeConst}="dhis2-base-url-store",${verConst}=1;` +
+                    `async function ${openFn}(){` +
+                    `const __opts={upgrade(__u){if(!__u.objectStoreNames.contains(${storeConst}))__u.createObjectStore(${storeConst},{keyPath:"appName"});}};` +
+                    `let __db=await ${openDbHelper}(${dbConst},${verConst},__opts);` +
+                    `if(!__db.objectStoreNames.contains(${storeConst})){` +
+                    `__db.close();` +
+                    `await new Promise(__r=>{try{const __d=indexedDB.deleteDatabase(${dbConst});__d.onsuccess=__r;__d.onerror=__r;__d.onblocked=__r;}catch(_e){__r();}});` +
+                    `__db=await ${openDbHelper}(${dbConst},${verConst},__opts);` +
+                    `}` +
+                    `return __db;}` +
+                    `async function ${putFn}({appName:${appNameArg},baseUrl:${baseUrlArg}}){return(await ${openFn}()).put(${storeConst},{appName:${appNameArg},baseUrl:${baseUrlArg}});}` +
+                    `async function ${getFn}(${getArg}){` +
+                    `const __rec=await(await ${openFn}()).get(${storeConst},${getArg});` +
+                    `const __u=__rec==null?void 0:__rec.baseUrl;` +
+                    `if(__u&&__u.indexOf("${PROXY_PREFIX}")===-1&&window.__CAPTURE_NP_PREVIEW__){` +
+                    `const __p=window.__CAPTURE_NP_PREVIEW__.toProxyUrl(__u);` +
+                    `try{await ${putFn}({appName:${getArg},baseUrl:__p});}catch(_e){}` +
+                    `return __p;}` +
+                    `return __u;}`,
+            );
+            if (nextIdb !== js) {
+                js = nextIdb;
                 changed = true;
             }
 
