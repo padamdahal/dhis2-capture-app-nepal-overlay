@@ -8,6 +8,7 @@ export type NepalBrandingConfig = {
 
 export type NepalFeatureFlags = {
     nepaliDatePicker: boolean;
+    nepaliDateDisplay: boolean;
 };
 
 export const NEPAL_BRANDING: NepalBrandingConfig = {
@@ -20,4 +21,5 @@ export const NEPAL_BRANDING: NepalBrandingConfig = {
 
 export const NEPAL_FEATURES: NepalFeatureFlags = {
     nepaliDatePicker: true,
+    nepaliDateDisplay: true,
 };

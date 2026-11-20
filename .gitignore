@@ -1,5 +1,6 @@
 node_modules/
 .nepal-workspace/
+.nepal-workspace-minimal/
 .nepal-cache/
 dist/
 build/

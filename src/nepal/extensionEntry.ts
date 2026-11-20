@@ -4,6 +4,8 @@ import {
     NepaliDateAddon,
     adStringToBsParts,
     bsPartsToAd,
+    formatDisplayDateTimeWithBs,
+    formatDisplayDateWithBs,
     parseAndConvertBsInput,
 } from './index';
 import type { NepalExtensionAPI, NepalExtensionHost } from './runtime/extensionHost';
@@ -14,6 +16,8 @@ export {
     NepaliDateAddon,
     adStringToBsParts,
     bsPartsToAd,
+    formatDisplayDateTimeWithBs as formatDisplayDateTime,
+    formatDisplayDateWithBs as formatDisplayDate,
     parseAndConvertBsInput,
 };
 
@@ -25,6 +29,8 @@ export const initNepalExtension = (host?: NepalExtensionHost): NepalExtensionAPI
         NEPAL_BRANDING,
         NEPAL_FEATURES,
         NepaliDateAddon,
+        formatDisplayDate: formatDisplayDateWithBs,
+        formatDisplayDateTime: formatDisplayDateTimeWithBs,
     };
 };
 

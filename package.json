@@ -9,8 +9,11 @@
     "preview": "vite preview --host 0.0.0.0 --port 3000",
     "lint": "tsc --noEmit",
     "overlay": "node nepal/scripts/applyOverlayToBase.mjs",
+    "overlay:minimal": "node nepal/scripts/applyOverlayToBase.mjs --minimal",
     "build:full": "node nepal/scripts/applyOverlayToBase.mjs --build-full",
+    "build:minimal": "node nepal/scripts/applyOverlayToBase.mjs --minimal --build-full",
     "build:fast": "node nepal/scripts/applyOverlayToBase.mjs --build-fast",
+    "build:fast:minimal": "node nepal/scripts/applyOverlayToBase.mjs --minimal --build-fast",
     "build:ext": "node nepal/scripts/buildExtension.mjs --out dist"
   },
   "dependencies": {

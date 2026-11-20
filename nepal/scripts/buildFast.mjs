@@ -27,6 +27,7 @@ const ROOT = path.resolve(__dirname, '../..');
 
 const INIT_BASE = process.argv.includes('--init-base');
 const SKIP_VERIFY = process.argv.includes('--no-verify');
+const MINIMAL = process.argv.includes('--minimal');
 
 function syncBrandingIntoBuildApp(branding, buildAppDir) {
     const publicDir = path.join(ROOT, 'public');
@@ -120,7 +121,9 @@ async function main() {
         process.exit(1);
     }
 
-    console.log('[nepal:build-fast] Skipping 7,300+ unchanged Capture core modules...');
+    console.log(
+        `[nepal:build-fast] Profile=${MINIMAL ? 'minimal' : 'full'} — skipping 7,300+ unchanged Capture core modules...`,
+    );
 
     // 1. Re-stamp branding/icons into repo & cached build/app
     execFileSync('node', [path.join(ROOT, 'nepal', 'scripts', 'applyBranding.mjs')], {
@@ -136,7 +139,9 @@ async function main() {
     });
 
     // 3. Repack DHIS2 ZIP bundle (~1s)
-    const zipFilename = `${branding.name}-${pkg.version}.zip`;
+    const zipFilename = MINIMAL
+        ? `${branding.name}-${pkg.version}-minimal.zip`
+        : `${branding.name}-${pkg.version}.zip`;
     const zipPath = path.join(ROOT, 'build', 'bundle', zipFilename);
     packZipFast(buildAppDir, zipPath);
     const sizeMb = (fs.statSync(zipPath).size / (1024 * 1024)).toFixed(2);
@@ -144,14 +149,18 @@ async function main() {
 
     // 4. Verify ZIP & hooks
     if (!SKIP_VERIFY) {
-        execFileSync('node', [path.join(ROOT, 'nepal', 'scripts', 'verifyIntegration.mjs'), '--zip'], {
+        const verifyArgs = [path.join(ROOT, 'nepal', 'scripts', 'verifyIntegration.mjs'), '--zip'];
+        if (MINIMAL) {
+            verifyArgs.push('--minimal');
+        }
+        execFileSync('node', verifyArgs, {
             cwd: ROOT,
             stdio: 'inherit',
         });
     }
 
     const totalSec = ((Date.now() - t0) / 1000).toFixed(2);
-    console.log(`[nepal:build-fast] Done in ${totalSec}s (Nepal-only incremental rebuild).`);
+    console.log(`[nepal:build-fast] Done in ${totalSec}s (Nepal-only ${MINIMAL ? 'minimal ' : ''}incremental rebuild).`);
 }
 
 main().catch((err) => {

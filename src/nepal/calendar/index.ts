@@ -27,3 +27,10 @@ export {
     type BsParseResult,
     type SupportedDateFormat,
 } from './nepaliDate';
+
+export {
+    formatDisplayDateTimeWithBs,
+    formatDisplayDateWithBs,
+    isGregorianCalendar,
+    type DisplayDateFormatOptions,
+} from './bsDisplayFormatter';

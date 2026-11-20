@@ -55,6 +55,14 @@ The upstream Git repository and release tag are configured in `nepal/branding.js
    npm run build:fast
    ```
 
+3. **Minimal build without Nepali dates in displays** (keeps Capture NP branding and the BS date picker input addon, skips all read-only dual-date display hooks for pure upstream display rendering, and outputs `dist/capture-app-np-<version>-minimal.zip` using an isolated `.nepal-workspace-minimal/` directory):
+
+   ```bash
+   npm run build:minimal
+   # subsequent ~2s minimal rebuilds:
+   npm run build:fast:minimal
+   ```
+
 ## Available Scripts
 
 | Script | Purpose |
@@ -63,14 +71,17 @@ The upstream Git repository and release tag are configured in `nepal/branding.js
 | `npm run build` | Builds the standalone preview output into `dist/` (preserving untouched release `.zip` + `.sha256`) |
 | `npm run preview` | Serves the built preview on `0.0.0.0:3000` |
 | `npm run lint` | Typechecks `src/nepal/**` and `src/core_modules/capture-core-utils/**` (`tsc --noEmit`) |
-| `npm run overlay` | Stages `.nepal-workspace/` and applies the Nepal overlay without compiling a ZIP |
+| `npm run overlay` | Stages `.nepal-workspace/` and applies the full Nepal overlay without compiling a ZIP |
+| `npm run overlay:minimal` | Stages `.nepal-workspace-minimal/` without dual-date display hooks |
 | `npm run build:full` | Full upstream overlay build + verification → `dist/capture-app-np-<version>.zip` |
-| `npm run build:fast` | ~1.5–2s Nepal-only incremental rebuild + ZIP verification |
+| `npm run build:minimal` | Minimal upstream overlay build (picker + branding, stock AD displays) → `dist/capture-app-np-<version>-minimal.zip` |
+| `npm run build:fast` | ~1.5–2s Nepal-only incremental rebuild (full profile) + ZIP verification |
+| `npm run build:fast:minimal` | ~1.5–2s Nepal-only incremental rebuild (minimal profile) + ZIP verification |
 | `npm run build:ext` | Compiles only `src/nepal/**` into `dist/nepal-extension.js` + `dist/nepal-extension.meta.json` |
 
 ## What Stays in Git vs. `.gitignore`
 
-- **Keep gitignored**: `.nepal-cache/`, `.nepal-workspace/`, `dist/`, `build/`, and `node_modules/` are intentionally excluded in `.gitignore` so upstream Capture source and build caches never bloat Git.
+- **Keep gitignored**: `.nepal-cache/`, `.nepal-workspace/`, `.nepal-workspace-minimal/`, `dist/`, `build/`, and `node_modules/` are intentionally excluded in `.gitignore` so upstream Capture source and build caches never bloat Git.
 - **Tracked in `public/`**: `public/capture-app-np-<version>.zip` (and `.sha256`) stays tracked so `npm run dev` boots instantly into the DHIS2 testing interface on fresh checkouts or ephemeral containers.
 
 ## Upgrading to a New DHIS2 Capture Release

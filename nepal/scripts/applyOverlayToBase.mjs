@@ -47,8 +47,10 @@ function parseArgs(argv) {
         repoTag: process.env.CAPTURE_BASE_TAG || branding.upstreamBaseTag || 'v107.9.3',
         defaultRepoUrl: branding.upstreamRepo || 'https://github.com/dhis2/capture-app.git',
         workspaceDir: path.join(OVERLAY_ROOT, '.nepal-workspace'),
+        workspaceExplicit: false,
         buildFull: false,
         buildFast: false,
+        minimal: false,
         install: false,
         refreshBase: false,
     };
@@ -66,16 +68,23 @@ function parseArgs(argv) {
             i += 1;
         } else if (arg === '--workspace' && argv[i + 1]) {
             opts.workspaceDir = path.resolve(OVERLAY_ROOT, argv[i + 1]);
+            opts.workspaceExplicit = true;
             i += 1;
         } else if (arg === '--build-full') {
             opts.buildFull = true;
         } else if (arg === '--build-fast') {
             opts.buildFast = true;
+        } else if (arg === '--minimal') {
+            opts.minimal = true;
         } else if (arg === '--install') {
             opts.install = true;
         } else if (arg === '--refresh-base') {
             opts.refreshBase = true;
         }
+    }
+
+    if (opts.minimal && !opts.workspaceExplicit) {
+        opts.workspaceDir = path.join(OVERLAY_ROOT, '.nepal-workspace-minimal');
     }
 
     // If user passed a Git URL in --base or CAPTURE_BASE_DIR, automatically treat it as --repo
@@ -207,13 +216,28 @@ function stageBaseCapture(baseDir, workspaceDir) {
     }
 }
 
-function applyNepalOverlay(workspaceDir) {
+function applyMinimalConfigToWorkspace(workspaceDir) {
+    patchFile(
+        path.join(workspaceDir, 'src', 'nepal', 'config', 'nepalConfig.ts'),
+        raw => raw.replace(/nepaliDateDisplay:\s*true/, 'nepaliDateDisplay: false'),
+        'nepalConfig.ts disable nepaliDateDisplay (minimal profile)',
+    );
+}
+
+function applyNepalOverlay(workspaceDir, { minimal = false } = {}) {
+    console.log(
+        `[overlay] Profile: ${minimal ? 'minimal (skipping dual BS date display hooks)' : 'full (BS date picker + dual AD/BS display)'}`,
+    );
     console.log('[overlay] Copying isolated Nepal extension & scripts...');
     fs.rmSync(path.join(workspaceDir, 'src', 'nepal'), { recursive: true, force: true });
     fs.cpSync(path.join(OVERLAY_ROOT, 'src', 'nepal'), path.join(workspaceDir, 'src', 'nepal'), { recursive: true });
 
     fs.rmSync(path.join(workspaceDir, 'nepal'), { recursive: true, force: true });
     fs.cpSync(path.join(OVERLAY_ROOT, 'nepal'), path.join(workspaceDir, 'nepal'), { recursive: true });
+
+    if (minimal) {
+        applyMinimalConfigToWorkspace(workspaceDir);
+    }
 
     console.log('[overlay] Applying thin upstream hooks...');
 
@@ -355,7 +379,157 @@ function applyNepalOverlay(workspaceDir) {
         'hashSHA256.ts non-HTTPS fallback',
     );
 
-    // 10. Ensure package.json includes Nepal scripts & nepali-date-converter
+    if (!minimal) {
+        // 10. clientToView.tsx dual AD + BS read-only view formatting
+        patchFile(
+            path.join(workspaceDir, 'src/core_modules/capture-core/converters/clientToView.tsx'),
+            (raw) => {
+                if (raw.includes('capture-nepal/runtime/dateDisplayBridge')) return raw;
+                return raw
+                    .replace(
+                        /(import\s+\{\s*convertIsoToLocalCalendar\s*\}\s+from\s+'\.\.\/utils\/converters\/date';)/,
+                        "$1\nimport { systemSettingsStore } from '../metaDataMemoryStores';\nimport { formatDisplayDate, formatDisplayDateTime } from 'capture-nepal/runtime/dateDisplayBridge';",
+                    )
+                    .replace(
+                        /function convertDateForView\(rawValue: string\): string \{\s*return convertIsoToLocalCalendar\(rawValue\);\s*\}/,
+                        `function convertDateForView(rawValue: string): string {\n    const localDate = convertIsoToLocalCalendar(rawValue);\n    const { calendar, dateFormat } = systemSettingsStore.get();\n    return formatDisplayDate(localDate, { rawValue, calendar, dateFormat });\n}`,
+                    )
+                    .replace(
+                        /function convertDateTimeForView\(rawValue: string\): string \{\s*const timeString = formatMomentEn\(rawValue, 'HH:mm'\);\s*const localDate = convertIsoToLocalCalendar\(rawValue\);\s*return `\$\{localDate\} \$\{timeString\}`;\s*\}/,
+                        `function convertDateTimeForView(rawValue: string): string {\n    const timeString = formatMomentEn(rawValue, 'HH:mm');\n    const localDate = convertIsoToLocalCalendar(rawValue);\n    const { calendar, dateFormat } = systemSettingsStore.get();\n    return formatDisplayDateTime(localDate, timeString, { rawValue, calendar, dateFormat });\n}`,
+                    );
+            },
+            'clientToView.tsx dual AD + BS display',
+        );
+
+        // 11. clientToList.tsx dual AD + BS list, table & range formatting
+        patchFile(
+            path.join(workspaceDir, 'src/core_modules/capture-core/converters/clientToList.tsx'),
+            (raw) => {
+                if (raw.includes('capture-nepal/runtime/dateDisplayBridge')) return raw;
+                return raw
+                    .replace(
+                        /(import\s+\{\s*convertIsoToLocalCalendar\s*\}\s+from\s+'\.\.\/utils\/converters\/date';)/,
+                        "$1\nimport { systemSettingsStore } from '../metaDataMemoryStores';\nimport { formatDisplayDate, formatDisplayDateTime } from 'capture-nepal/runtime/dateDisplayBridge';",
+                    )
+                    .replace(
+                        /function convertDateForListDisplay\(rawValue: string\): string \{\s*return convertIsoToLocalCalendar\(rawValue\);\s*\}/,
+                        `function convertDateForListDisplay(rawValue: string): string {\n    const localDate = convertIsoToLocalCalendar(rawValue);\n    const { calendar, dateFormat } = systemSettingsStore.get();\n    return formatDisplayDate(localDate, { rawValue, calendar, dateFormat });\n}`,
+                    )
+                    .replace(
+                        /function convertDateTimeForListDisplay\(rawValue: string\): string \{\s*const timeString = formatMomentEn\(rawValue, 'HH:mm'\);\s*const localDate = convertIsoToLocalCalendar\(rawValue\);\s*return `\$\{localDate\} \$\{timeString\}`;\s*\}/,
+                        `function convertDateTimeForListDisplay(rawValue: string): string {\n    const timeString = formatMomentEn(rawValue, 'HH:mm');\n    const localDate = convertIsoToLocalCalendar(rawValue);\n    const { calendar, dateFormat } = systemSettingsStore.get();\n    return formatDisplayDateTime(localDate, timeString, { rawValue, calendar, dateFormat });\n}`,
+                    )
+                    .replace(
+                        /convertRangeForDisplay\(convertIsoToLocalCalendar,\s*value\)/g,
+                        'convertRangeForDisplay(convertDateForListDisplay, value)',
+                    );
+            },
+            'clientToList.tsx dual AD + BS display',
+        );
+
+        // 12. WidgetEnrollment/Date/Date.component.tsx edit-safety guard (keep inline editor seeded with plain AD)
+        patchFile(
+            path.join(workspaceDir, 'src/core_modules/capture-core/components/WidgetEnrollment/Date/Date.component.tsx'),
+            (raw) => {
+                if (raw.includes('setSelectedDate(convertIsoToLocalCalendar(date))')) return raw;
+                return raw
+                    .replace(
+                        /import\s+\{\s*convertDateObjectToDateFormatString\s*\}\s+from\s+'capture-core\/utils\/converters\/date';/,
+                        "import { convertDateObjectToDateFormatString, convertIsoToLocalCalendar } from 'capture-core/utils/converters/date';",
+                    )
+                    .replace(
+                        /setSelectedDate\(String\(convertValueClientToView\(date,\s*dataElementTypes\.DATE\)\)\);/,
+                        'setSelectedDate(convertIsoToLocalCalendar(date));',
+                    );
+            },
+            'WidgetEnrollment Date.component.tsx edit-mode AD initializer',
+        );
+
+        // 13. WidgetStagesAndEvents StageDetail scheduled status badge dual AD + BS display
+        patchFile(
+            path.join(workspaceDir, 'src/core_modules/capture-core/components/WidgetStagesAndEvents/Stages/Stage/StageDetail/hooks/helpers.ts'),
+            (raw) => {
+                if (raw.includes('capture-nepal/runtime/dateDisplayBridge')) return raw;
+                return raw
+                    .replace(
+                        /(import\s+\{\s*convertIsoToLocalCalendar\s*\}\s+from\s+'\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/utils\/converters\/date';)/,
+                        "$1\nimport { systemSettingsStore } from '../../../../../../metaDataMemoryStores';\nimport { formatDisplayDate } from 'capture-nepal/runtime/dateDisplayBridge';",
+                    )
+                    .replace(
+                        /return\s+\{\s*status:\s*statusTypes\.SCHEDULE,\s*options:\s*convertIsoToLocalCalendar\(event\.scheduledAt\)\s*\};/,
+                        `const localScheduledDate = convertIsoToLocalCalendar(event.scheduledAt);\n        const { calendar, dateFormat } = systemSettingsStore.get();\n        return {\n            status: statusTypes.SCHEDULE,\n            options: formatDisplayDate(localScheduledDate, { rawValue: event.scheduledAt, calendar, dateFormat }),\n        };`,
+                    );
+            },
+            'StageDetail helpers.ts scheduled status dual AD + BS',
+        );
+
+        // 14a. Working list active Date filter button summary chip dual AD + BS display
+        patchFile(
+            path.join(workspaceDir, 'src/core_modules/capture-core/components/ListView/Filters/FilterButton/buttonTextBuilder/converters/dateConverter.ts'),
+            (raw) => {
+                if (raw.includes('capture-nepal/runtime/dateDisplayBridge')) return raw;
+                return raw
+                    .replace(
+                        /(import\s+\{\s*convertIsoToLocalCalendar\s*\}\s+from\s+'\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/utils\/converters\/date';)/,
+                        "$1\nimport { systemSettingsStore } from '../../../../../../metaDataMemoryStores';\nimport { formatDisplayDate } from 'capture-nepal/runtime/dateDisplayBridge';",
+                    )
+                    .replace(
+                        /function translateAbsoluteDate\(/,
+                        `function formatFilterDateForChip(rawValue?: string | null): string {\n    const localDate = convertIsoToLocalCalendar(rawValue);\n    const { calendar, dateFormat } = systemSettingsStore.get();\n    return formatDisplayDate(localDate, { rawValue, calendar, dateFormat });\n}\n\nfunction translateAbsoluteDate(`,
+                    )
+                    .replace(
+                        /convertIsoToLocalCalendar\((fromValue|toValue)\)/g,
+                        'formatFilterDateForChip($1)',
+                    );
+            },
+            'FilterButton dateConverter.ts dual AD + BS chip',
+        );
+
+        // 14b. Working list active DateTime filter button summary chip dual AD + BS display
+        patchFile(
+            path.join(workspaceDir, 'src/core_modules/capture-core/components/ListView/Filters/FilterButton/buttonTextBuilder/converters/dateTimeConverter.ts'),
+            (raw) => {
+                if (raw.includes('capture-nepal/runtime/dateDisplayBridge')) return raw;
+                return raw
+                    .replace(
+                        /(import\s+\{\s*convertIsoToLocalCalendar\s*\}\s+from\s+'\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/utils\/converters\/date';)/,
+                        "$1\nimport { systemSettingsStore } from '../../../../../../metaDataMemoryStores';\nimport { formatDisplayDateTime } from 'capture-nepal/runtime/dateDisplayBridge';",
+                    )
+                    .replace(
+                        /return `\$\{convertIsoToLocalCalendar\(datePart\)\} \$\{timePart\?\.slice\(0, 5\) \?\? ''\}`\.trim\(\);/,
+                        `const localDate = convertIsoToLocalCalendar(datePart);\n    const { calendar, dateFormat } = systemSettingsStore.get();\n    return formatDisplayDateTime(localDate, timePart?.slice(0, 5) ?? '', { rawValue: datePart, calendar, dateFormat });`,
+                    );
+            },
+            'FilterButton dateTimeConverter.ts dual AD + BS chip',
+        );
+
+        // 15. WidgetEventSchedule InfoBox auto-scheduled date banner dual AD + BS display
+        patchFile(
+            path.join(workspaceDir, 'src/core_modules/capture-core/components/WidgetEventSchedule/InfoBox/InfoBox.component.tsx'),
+            (raw) => {
+                if (raw.includes('capture-nepal/runtime/dateDisplayBridge')) return raw;
+                return raw
+                    .replace(
+                        /(import\s+\{\s*LabelKeys,\s*useTermLabel\s*\}\s+from\s+'\.\.\/\.\.\/\.\.\/customLabels';)/,
+                        "$1\nimport { convertIsoToLocalCalendar } from '../../../utils/converters/date';\nimport { systemSettingsStore } from '../../../metaDataMemoryStores';\nimport { formatDisplayDate } from 'capture-nepal/runtime/dateDisplayBridge';",
+                    )
+                    .replace(
+                        /const scheduledDateMatchesSuggested = scheduleDate === suggestedScheduleDate;/,
+                        `const scheduledDateMatchesSuggested = scheduleDate === suggestedScheduleDate;\n    const { calendar, dateFormat } = systemSettingsStore.get();\n    const suggestedScheduleDateDisplay = formatDisplayDate(\n        convertIsoToLocalCalendar(suggestedScheduleDate) || suggestedScheduleDate,\n        { rawValue: suggestedScheduleDate, calendar, dateFormat },\n    );`,
+                    )
+                    .replace(
+                        /i18n\.t\('Scheduled automatically for \{\{suggestedScheduleDate\}\}',\s*\{\s*suggestedScheduleDate\s*\}\)/,
+                        "i18n.t('Scheduled automatically for {{suggestedScheduleDate}}', { suggestedScheduleDate: suggestedScheduleDateDisplay })",
+                    );
+            },
+            'WidgetEventSchedule InfoBox.component.tsx dual AD + BS banner',
+        );
+    } else {
+        console.log('  [skip]    Hooks #7-#12 (dual AD + BS display) skipped for minimal build');
+    }
+
+    // 16. Ensure package.json includes Nepal scripts & nepali-date-converter
     patchFile(
         path.join(workspaceDir, 'package.json'),
         (raw) => {
@@ -390,7 +564,14 @@ function main() {
         fs.rmSync(path.join(OVERLAY_ROOT, 'nepal', '.DS_Store'), { force: true });
         fs.rmSync(path.join(opts.workspaceDir, 'nepal'), { recursive: true, force: true });
         fs.cpSync(path.join(OVERLAY_ROOT, 'nepal'), path.join(opts.workspaceDir, 'nepal'), { recursive: true });
-        execFileSync('node', [path.join(opts.workspaceDir, 'nepal', 'scripts', 'buildFast.mjs')], {
+        if (opts.minimal) {
+            applyMinimalConfigToWorkspace(opts.workspaceDir);
+        }
+        const fastArgs = [path.join(opts.workspaceDir, 'nepal', 'scripts', 'buildFast.mjs')];
+        if (opts.minimal) {
+            fastArgs.push('--minimal');
+        }
+        execFileSync('node', fastArgs, {
             cwd: opts.workspaceDir,
             stdio: 'inherit',
         });
@@ -401,7 +582,7 @@ function main() {
 
         console.log(`[overlay] Base capture-app: ${resolvedBaseDir}`);
         stageBaseCapture(resolvedBaseDir, opts.workspaceDir);
-        applyNepalOverlay(opts.workspaceDir);
+        applyNepalOverlay(opts.workspaceDir, { minimal: opts.minimal });
 
         // Ensure nepali-date-converter is installed (copy from overlay repo's node_modules if present to avoid full npm install!)
         const wsNodeModules = path.join(opts.workspaceDir, 'node_modules');
@@ -422,7 +603,22 @@ function main() {
 
         if (opts.buildFull || opts.buildFast) {
             execSync('npm run build:zip', { cwd: opts.workspaceDir, stdio: 'inherit' });
-            execFileSync('node', [path.join(opts.workspaceDir, 'nepal', 'scripts', 'verifyIntegration.mjs'), '--zip'], {
+
+            if (opts.minimal) {
+                const wsBundleDir = path.join(opts.workspaceDir, 'build', 'bundle');
+                if (fs.existsSync(wsBundleDir)) {
+                    for (const f of fs.readdirSync(wsBundleDir).filter(n => n.endsWith('.zip') && !n.endsWith('-minimal.zip'))) {
+                        const targetName = f.replace(/\.zip$/, '-minimal.zip');
+                        fs.renameSync(path.join(wsBundleDir, f), path.join(wsBundleDir, targetName));
+                    }
+                }
+            }
+
+            const verifyArgs = [path.join(opts.workspaceDir, 'nepal', 'scripts', 'verifyIntegration.mjs'), '--zip'];
+            if (opts.minimal) {
+                verifyArgs.push('--minimal');
+            }
+            execFileSync('node', verifyArgs, {
                 cwd: opts.workspaceDir,
                 stdio: 'inherit',
             });
@@ -434,7 +630,10 @@ function main() {
     if (fs.existsSync(wsBundleDir)) {
         const outDist = path.join(OVERLAY_ROOT, 'dist');
         fs.mkdirSync(outDist, { recursive: true });
-        for (const f of fs.readdirSync(wsBundleDir).filter(n => n.endsWith('.zip'))) {
+        const zipFiles = fs
+            .readdirSync(wsBundleDir)
+            .filter(n => (opts.minimal ? n.endsWith('-minimal.zip') : n.endsWith('.zip') && !n.endsWith('-minimal.zip')));
+        for (const f of zipFiles) {
             fs.copyFileSync(path.join(wsBundleDir, f), path.join(outDist, f));
             console.log(`[overlay] Output ZIP -> dist/${f}`);
         }

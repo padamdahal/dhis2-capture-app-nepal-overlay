@@ -21,6 +21,7 @@ const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, '../..');
 
 const CHECK_ZIP = process.argv.includes('--zip');
+const IS_MINIMAL = process.argv.includes('--minimal');
 const errors = [];
 const passes = [];
 
@@ -44,6 +45,21 @@ function assertFileContains(relPath, needles, label) {
     const missing = needles.filter(n => (n instanceof RegExp ? !n.test(text) : !text.includes(n)));
     if (missing.length > 0) {
         fail(label, `${relPath} missing expected marker(s): ${missing.map(String).join(', ')}`);
+        return;
+    }
+    pass(label);
+}
+
+function assertFileDoesNotContain(relPath, forbiddenNeedles, label) {
+    const fullPath = path.join(ROOT, relPath);
+    if (!fs.existsSync(fullPath)) {
+        fail(label, `Missing file ${relPath}`);
+        return;
+    }
+    const text = fs.readFileSync(fullPath, 'utf8');
+    const found = forbiddenNeedles.filter(n => (n instanceof RegExp ? n.test(text) : text.includes(n)));
+    if (found.length > 0) {
+        fail(label, `${relPath} unexpectedly contains forbidden marker(s): ${found.map(String).join(', ')}`);
         return;
     }
     pass(label);
@@ -182,6 +198,89 @@ function verifyAliasesAndHooks() {
         ['crypto?.subtle'],
         'Hook #6: hashSHA256.ts non-HTTPS fallback',
     );
+    if (IS_MINIMAL) {
+        assertFileContains(
+            'src/nepal/config/nepalConfig.ts',
+            ['nepaliDateDisplay: false'],
+            'Minimal profile: nepalConfig.ts disables nepaliDateDisplay',
+        );
+        assertFileDoesNotContain(
+            'src/core_modules/capture-core/converters/clientToView.tsx',
+            ['capture-nepal/runtime/dateDisplayBridge', 'formatDisplayDate'],
+            'Minimal profile: clientToView.tsx untouched upstream',
+        );
+        assertFileDoesNotContain(
+            'src/core_modules/capture-core/converters/clientToList.tsx',
+            ['capture-nepal/runtime/dateDisplayBridge', 'formatDisplayDate'],
+            'Minimal profile: clientToList.tsx untouched upstream',
+        );
+        assertFileDoesNotContain(
+            'src/core_modules/capture-core/components/WidgetEnrollment/Date/Date.component.tsx',
+            ['setSelectedDate(convertIsoToLocalCalendar(date))'],
+            'Minimal profile: WidgetEnrollment Date.component.tsx untouched upstream',
+        );
+        assertFileDoesNotContain(
+            'src/core_modules/capture-core/components/WidgetStagesAndEvents/Stages/Stage/StageDetail/hooks/helpers.ts',
+            ['capture-nepal/runtime/dateDisplayBridge', 'formatDisplayDate'],
+            'Minimal profile: StageDetail helpers.ts untouched upstream',
+        );
+        assertFileDoesNotContain(
+            'src/core_modules/capture-core/components/ListView/Filters/FilterButton/buttonTextBuilder/converters/dateConverter.ts',
+            ['capture-nepal/runtime/dateDisplayBridge', 'formatFilterDateForChip'],
+            'Minimal profile: FilterButton dateConverter.ts untouched upstream',
+        );
+        assertFileDoesNotContain(
+            'src/core_modules/capture-core/components/ListView/Filters/FilterButton/buttonTextBuilder/converters/dateTimeConverter.ts',
+            ['capture-nepal/runtime/dateDisplayBridge', 'formatDisplayDateTime'],
+            'Minimal profile: FilterButton dateTimeConverter.ts untouched upstream',
+        );
+        assertFileDoesNotContain(
+            'src/core_modules/capture-core/components/WidgetEventSchedule/InfoBox/InfoBox.component.tsx',
+            ['capture-nepal/runtime/dateDisplayBridge', 'suggestedScheduleDateDisplay'],
+            'Minimal profile: WidgetEventSchedule InfoBox untouched upstream',
+        );
+    } else {
+        assertFileContains(
+            'src/nepal/config/nepalConfig.ts',
+            ['nepaliDateDisplay: true'],
+            'Full profile: nepalConfig.ts enables nepaliDateDisplay',
+        );
+        assertFileContains(
+            'src/core_modules/capture-core/converters/clientToView.tsx',
+            ["from 'capture-nepal/runtime/dateDisplayBridge'", 'formatDisplayDate', 'formatDisplayDateTime'],
+            'Hook #7: clientToView.tsx dual AD + BS display',
+        );
+        assertFileContains(
+            'src/core_modules/capture-core/converters/clientToList.tsx',
+            ["from 'capture-nepal/runtime/dateDisplayBridge'", 'formatDisplayDate', 'formatDisplayDateTime', 'convertRangeForDisplay(convertDateForListDisplay, value)'],
+            'Hook #8: clientToList.tsx dual AD + BS display & ranges',
+        );
+        assertFileContains(
+            'src/core_modules/capture-core/components/WidgetEnrollment/Date/Date.component.tsx',
+            ['setSelectedDate(convertIsoToLocalCalendar(date))'],
+            'Hook #9: WidgetEnrollment Date.component.tsx edit-safe AD initializer',
+        );
+        assertFileContains(
+            'src/core_modules/capture-core/components/WidgetStagesAndEvents/Stages/Stage/StageDetail/hooks/helpers.ts',
+            ["from 'capture-nepal/runtime/dateDisplayBridge'", 'formatDisplayDate'],
+            'Hook #10: StageDetail scheduled status dual AD + BS display',
+        );
+        assertFileContains(
+            'src/core_modules/capture-core/components/ListView/Filters/FilterButton/buttonTextBuilder/converters/dateConverter.ts',
+            ["from 'capture-nepal/runtime/dateDisplayBridge'", 'formatFilterDateForChip'],
+            'Hook #11a: FilterButton dateConverter.ts dual AD + BS chip',
+        );
+        assertFileContains(
+            'src/core_modules/capture-core/components/ListView/Filters/FilterButton/buttonTextBuilder/converters/dateTimeConverter.ts',
+            ["from 'capture-nepal/runtime/dateDisplayBridge'", 'formatDisplayDateTime'],
+            'Hook #11b: FilterButton dateTimeConverter.ts dual AD + BS chip',
+        );
+        assertFileContains(
+            'src/core_modules/capture-core/components/WidgetEventSchedule/InfoBox/InfoBox.component.tsx',
+            ["from 'capture-nepal/runtime/dateDisplayBridge'", 'suggestedScheduleDateDisplay'],
+            'Hook #12: WidgetEventSchedule InfoBox dual AD + BS banner',
+        );
+    }
 
     const deprecatedFiles = [
         'src/core_modules/capture-ui/utils/nepaliDate.ts',
@@ -200,8 +299,57 @@ function verifyCalendarConversion() {
     const runner = fs.existsSync(tsxBin) ? tsxBin : 'npx';
     const baseArgs = fs.existsSync(tsxBin) ? [] : ['tsx'];
 
+const dualDisplayChecks = IS_MINIMAL
+        ? `
+import { NEPAL_FEATURES } from './src/nepal/config/nepalConfig.ts';
+assert(NEPAL_FEATURES.nepaliDateDisplay === false, 'Expected nepaliDateDisplay=false in minimal build');
+assert(
+  formatDisplayDateWithBs('2026-11-18', { calendar: 'gregorian', dateFormat: 'YYYY-MM-DD' }) === '2026-11-18',
+  'Expected minimal build to return plain AD date',
+);
+assert(
+  formatDisplayDateTimeWithBs('2026-11-18', '14:30', { calendar: 'gregorian', dateFormat: 'YYYY-MM-DD' }) === '2026-11-18 14:30',
+  'Expected minimal build to return plain AD date-time',
+);
+`
+        : `
+// Dual display formatter checks
+assert(
+  formatDisplayDateWithBs('2026-11-18', { calendar: 'gregorian', dateFormat: 'YYYY-MM-DD' }) === '2026-11-18 (2083-08-02 BS)',
+  'Expected YYYY-MM-DD dual format',
+);
+assert(
+  formatDisplayDateWithBs('14-04-2025', { calendar: 'gregorian', dateFormat: 'DD-MM-YYYY' }) === '14-04-2025 (2082-01-01 BS)',
+  'Expected DD-MM-YYYY AD with YYYY-MM-DD BS dual format',
+);
+assert(
+  formatDisplayDateTimeWithBs('2026-11-18', '14:30', { calendar: 'iso8601', dateFormat: 'YYYY-MM-DD' }) === '2026-11-18 14:30 (2083-08-02 BS)',
+  'Expected DateTime dual format',
+);
+// Local date takes precedence over UTC ISO timestamp around midnight
+assert(
+  formatDisplayDateTimeWithBs('2026-03-15', '02:15', { rawValue: '2026-03-14T20:30:00.000Z', calendar: 'gregorian', dateFormat: 'YYYY-MM-DD' }) === '2026-03-15 02:15 (2082-12-01 BS)',
+  'Expected local AD day to drive BS date across UTC midnight',
+);
+// Non-Gregorian calendar guard
+assert(
+  formatDisplayDateWithBs('2018-07-05', { calendar: 'ethiopian', dateFormat: 'YYYY-MM-DD' }) === '2018-07-05',
+  'Expected Ethiopian calendar to bypass BS append',
+);
+// Out-of-range fallback & idempotency
+assert(
+  formatDisplayDateWithBs('1900-01-01', { calendar: 'gregorian', dateFormat: 'YYYY-MM-DD' }) === '1900-01-01',
+  'Expected out-of-range AD date to fall back cleanly',
+);
+assert(
+  formatDisplayDateWithBs('2026-11-18 (2083-08-02 BS)', { calendar: 'gregorian', dateFormat: 'YYYY-MM-DD' }) === '2026-11-18 (2083-08-02 BS)',
+  'Expected idempotent dual formatting',
+);
+`;
+
     const script = `
 import { adStringToBsParts, bsPartsToAd, parseAndConvertBsInput } from './src/nepal/calendar/nepaliDate.ts';
+import { formatDisplayDateWithBs, formatDisplayDateTimeWithBs } from './src/nepal/calendar/bsDisplayFormatter.ts';
 
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error(msg);
@@ -229,6 +377,8 @@ assert(maxCheck.valid === false && maxCheck.errorCode === 'INVALID_DATE_MORE_THA
 const invalidCheck = parseAndConvertBsInput('2083-13-40', 'YYYY-MM-DD');
 assert(invalidCheck.valid === false, 'Expected invalid BS date to fail');
 
+${dualDisplayChecks}
+
 console.log('BS_CONVERSION_OK');
 `;
 
@@ -239,7 +389,11 @@ console.log('BS_CONVERSION_OK');
             stdio: ['ignore', 'pipe', 'pipe'],
         });
         if (out.includes('BS_CONVERSION_OK')) {
-            pass('BS <-> AD conversion & validation roundtrips');
+            pass(
+                IS_MINIMAL
+                    ? 'BS <-> AD conversion, validation & minimal plain-AD display checks'
+                    : 'BS <-> AD conversion, validation & dual display roundtrips',
+            );
         } else {
             fail('BS <-> AD conversion', `Unexpected output: ${out}`);
         }
@@ -250,7 +404,10 @@ console.log('BS_CONVERSION_OK');
 
 function verifyZipBundle(branding) {
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
-    const zipPath = path.join(ROOT, 'build', 'bundle', `${branding.name}-${pkg.version}.zip`);
+    const zipFilename = IS_MINIMAL
+        ? `${branding.name}-${pkg.version}-minimal.zip`
+        : `${branding.name}-${pkg.version}.zip`;
+    const zipPath = path.join(ROOT, 'build', 'bundle', zipFilename);
     if (!fs.existsSync(zipPath)) {
         fail('DHIS2 ZIP bundle', `Expected ${path.relative(ROOT, zipPath)} not found`);
         return;

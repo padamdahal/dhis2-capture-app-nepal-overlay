@@ -25,6 +25,7 @@ import {
 } from '@dhis2/ui';
 import type { NepalBrandingConfig, NepalFeatureFlags } from '../config/nepalConfig';
 import type { NepaliDateAddonProps } from '../calendar/NepaliDateAddon.component';
+import type { DisplayDateFormatOptions } from '../calendar/bsDisplayFormatter';
 
 export type NepalExtensionHost = {
     React: typeof React;
@@ -36,6 +37,15 @@ export type NepalExtensionAPI = {
     NEPAL_BRANDING: NepalBrandingConfig;
     NEPAL_FEATURES: NepalFeatureFlags;
     NepaliDateAddon: React.FC<NepaliDateAddonProps>;
+    formatDisplayDate?: (
+        localAdDate: string | null | undefined,
+        options?: DisplayDateFormatOptions,
+    ) => string;
+    formatDisplayDateTime?: (
+        localAdDate: string | null | undefined,
+        timeString: string | null | undefined,
+        options?: DisplayDateFormatOptions,
+    ) => string;
 };
 
 declare global {
@@ -163,6 +173,8 @@ export const ensureNepalExtensionLoaded = (): Promise<NepalExtensionAPI | null> 
                             NEPAL_BRANDING: mod.NEPAL_BRANDING,
                             NEPAL_FEATURES: mod.NEPAL_FEATURES,
                             NepaliDateAddon: mod.NepaliDateAddon,
+                            formatDisplayDate: mod.formatDisplayDate,
+                            formatDisplayDateTime: mod.formatDisplayDateTime,
                         }
                         : null;
 
