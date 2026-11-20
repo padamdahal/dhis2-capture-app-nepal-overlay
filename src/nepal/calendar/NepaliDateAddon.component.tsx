@@ -36,6 +36,7 @@ export type NepaliDateAddonProps = {
     adValue?: string | null;
     dateFormat?: SupportedDateFormat | null;
     disabled?: boolean | null;
+    dense?: boolean | null;
     calendarMax?: string | null;
     width?: string | number;
     maxWidth?: string | number | null;
@@ -72,6 +73,7 @@ export const NepaliDateAddon: React.FC<NepaliDateAddonProps> = ({
     adValue,
     dateFormat,
     disabled,
+    dense,
     calendarMax,
     width = '100%',
     maxWidth,
@@ -79,6 +81,7 @@ export const NepaliDateAddon: React.FC<NepaliDateAddonProps> = ({
     onDateSelectedFromCalendar,
     children,
 }) => {
+    const isDense = Boolean(dense);
     const activeFormat: SupportedDateFormat = dateFormat === 'DD-MM-YYYY' ? 'DD-MM-YYYY' : 'YYYY-MM-DD';
     const triggerRef = useRef<HTMLButtonElement | null>(null);
     const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -257,18 +260,18 @@ export const NepaliDateAddon: React.FC<NepaliDateAddonProps> = ({
                         data-test="nepali-bs-date-pill"
                         style={{
                             position: 'absolute',
-                            top: '-9px',
+                            top: isDense ? '-8px' : '-9px',
                             right: '6px',
                             zIndex: 2,
                             display: 'inline-flex',
                             alignItems: 'center',
-                            height: '18px',
-                            padding: '0 6px',
+                            height: isDense ? '16px' : '18px',
+                            padding: isDense ? '0 5px' : '0 6px',
                             borderRadius: '999px',
                             border: `1px solid ${colors.blue300}`,
                             backgroundColor: colors.blue050,
                             color: colors.blue800,
-                            fontSize: '10.5px',
+                            fontSize: isDense ? '10px' : '10.5px',
                             fontWeight: 600,
                             lineHeight: '14px',
                             letterSpacing: '0.01em',
@@ -298,24 +301,24 @@ export const NepaliDateAddon: React.FC<NepaliDateAddonProps> = ({
                     flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: '1px',
-                    height: '40px',
-                    width: '36px',
+                    gap: isDense ? '0px' : '1px',
+                    height: isDense ? '32px' : '40px',
+                    width: isDense ? '32px' : '36px',
                     flexShrink: 0,
                     borderRadius: '3px',
                     border: `1px solid ${open ? colors.blue600 : colors.grey500}`,
                     backgroundColor: open ? colors.blue050 : colors.white,
                     color: disabled ? colors.grey500 : (open ? colors.blue700 : colors.grey800),
                     cursor: disabled ? 'not-allowed' : 'pointer',
-                    padding: '2px 0',
+                    padding: isDense ? '1px 0' : '2px 0',
                 }}
             >
                 <IconCalendar16 />
                 <span
                     style={{
-                        fontSize: '9px',
+                        fontSize: isDense ? '8.5px' : '9px',
                         fontWeight: 700,
-                        lineHeight: '9px',
+                        lineHeight: isDense ? '8.5px' : '9px',
                         letterSpacing: '0.04em',
                     }}
                 >
@@ -324,7 +327,12 @@ export const NepaliDateAddon: React.FC<NepaliDateAddonProps> = ({
             </button>
 
             {open && !disabled && (
-                <Layer onBackdropClick={() => setOpen(false)}>
+                <Layer
+                    onBackdropClick={(_payload: any, event?: React.MouseEvent) => {
+                        event?.stopPropagation?.();
+                        setOpen(false);
+                    }}
+                >
                     <Popper
                         reference={triggerRef}
                         placement="bottom-end"
@@ -333,8 +341,11 @@ export const NepaliDateAddon: React.FC<NepaliDateAddonProps> = ({
                         <div
                             ref={popoverRef}
                             tabIndex={-1}
+                            onMouseDown={e => e.stopPropagation()}
+                            onClick={e => e.stopPropagation()}
                             onKeyDown={(e) => {
                                 if (e.key === 'Escape') {
+                                    e.stopPropagation();
                                     setOpen(false);
                                 }
                             }}

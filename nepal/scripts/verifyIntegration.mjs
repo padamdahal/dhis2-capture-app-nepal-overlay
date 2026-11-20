@@ -198,6 +198,21 @@ function verifyAliasesAndHooks() {
         ['crypto?.subtle'],
         'Hook #6: hashSHA256.ts non-HTTPS fallback',
     );
+    assertFileContains(
+        'src/core_modules/capture-core/components/FormFields/DateAndTime/D2Date/D2Date.component.tsx',
+        ["from 'capture-nepal/runtime/extensionHost'", 'NepalDateAddonBridge', 'showNepaliPicker', 'handleNepaliDateSelected'],
+        'Hook #6b: D2Date.component.tsx opt-in NepalDateAddonBridge',
+    );
+    assertFileContains(
+        'src/core_modules/capture-core/components/FiltersForTypes/Date/AbsoluteRangeFilter.component.tsx',
+        ['showNepaliPicker', 'inputWidth="168px"'],
+        'Hook #6c: AbsoluteRangeFilter.component.tsx compact BS picker trigger',
+    );
+    assertFileDoesNotContain(
+        'src/core_modules/capture-core/components/FiltersForTypes/DateTime/DateTimeFilter.component.tsx',
+        ['showNepaliPicker'],
+        'Scope check: DateTimeFilter.component.tsx remains untouched',
+    );
     if (IS_MINIMAL) {
         assertFileContains(
             'src/nepal/config/nepalConfig.ts',

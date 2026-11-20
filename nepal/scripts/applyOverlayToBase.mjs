@@ -379,6 +379,53 @@ function applyNepalOverlay(workspaceDir, { minimal = false } = {}) {
         'hashSHA256.ts non-HTTPS fallback',
     );
 
+    // 9b. D2Date.component.tsx opt-in NepalDateAddonBridge (core hook: active in both Full & Minimal)
+    patchFile(
+        path.join(workspaceDir, 'src/core_modules/capture-core/components/FormFields/DateAndTime/D2Date/D2Date.component.tsx'),
+        (raw) => {
+            if (raw.includes('NepalDateAddonBridge')) return raw;
+            return raw
+                .replace(
+                    /(import\s+\{\s*CalendarInput\s*\}\s+from\s+'@dhis2\/ui';)/,
+                    "$1\nimport { NepalDateAddonBridge } from 'capture-nepal/runtime/extensionHost';",
+                )
+                .replace(
+                    /(dense\?:\s*boolean;)/,
+                    '$1\n    showNepaliPicker?: boolean;',
+                )
+                .replace(
+                    /(this\.props\.onDateSelectedFromCalendar && this\.props\.onDateSelectedFromCalendar\(\);\s*\})/,
+                    `$1\n\n    handleNepaliDateSelected = (adDate: string | null, validationOptions?: { error?: string | null }) => {\n        const hasError = Boolean(validationOptions?.error);\n        this.props.onBlur({\n            value: adDate ?? '',\n            error: validationOptions?.error || undefined,\n            isValid: !hasError,\n        });\n    }`,
+                )
+                .replace(
+                    /(disabled,\s*\.\.\.passOnProps\s*\} = this\.props;)/,
+                    'disabled,\n            showNepaliPicker,\n            ...passOnProps\n        } = this.props;',
+                )
+                .replace(
+                    /return \(\s*<div>\s*<CalendarInput([\s\S]*?)\/>\s*<\/div>\s*\);/,
+                    `const normalizedFormat = format === 'DD-MM-YYYY' ? 'DD-MM-YYYY' : 'YYYY-MM-DD';\n        const enableNepaliAddon = Boolean(showNepaliPicker) && (calendarType === 'gregory' || calendarType === 'iso8601');\n\n        const calendarInputElement = (\n            <CalendarInput$1/>\n        );\n\n        if (enableNepaliAddon) {\n            return (\n                <NepalDateAddonBridge\n                    adValue={typeof value === 'string' ? value : null}\n                    dateFormat={normalizedFormat}\n                    disabled={!!disabled}\n                    dense={!!this.props.dense}\n                    width={inputWidth || '100%'}\n                    onSelectAdDate={this.handleNepaliDateSelected}\n                    onDateSelectedFromCalendar={onDateSelectedFromCalendar}\n                >\n                    {calendarInputElement}\n                </NepalDateAddonBridge>\n            );\n        }\n\n        return (\n            <div>\n                {calendarInputElement}\n            </div>\n        );`,
+                )
+                .replace(
+                    /inputWidth=\{inputWidth\}/,
+                    "inputWidth={enableNepaliAddon ? '100%' : inputWidth}",
+                );
+        },
+        'D2Date.component.tsx opt-in NepalDateAddonBridge',
+    );
+
+    // 9c. Working list AbsoluteRangeFilter From/To compact BS picker trigger (core hook: Full & Minimal)
+    patchFile(
+        path.join(workspaceDir, 'src/core_modules/capture-core/components/FiltersForTypes/Date/AbsoluteRangeFilter.component.tsx'),
+        (raw) => {
+            if (raw.includes('showNepaliPicker')) return raw;
+            return raw.replace(
+                /inputWidth="150px"\s*calendarWidth="330px"\s*dense/g,
+                'inputWidth="168px"\n                            calendarWidth="330px"\n                            dense\n                            showNepaliPicker',
+            );
+        },
+        'AbsoluteRangeFilter.component.tsx compact BS picker trigger',
+    );
+
     if (!minimal) {
         // 10. clientToView.tsx dual AD + BS read-only view formatting
         patchFile(
