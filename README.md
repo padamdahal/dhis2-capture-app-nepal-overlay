@@ -96,6 +96,11 @@ The upstream Git repository and release tag are configured in `nepal/branding.js
    git push origin main --tags
    ```
 
-GitHub Actions (`.github/workflows/release-capture-app-np.yml`) automatically clones the pinned upstream tag, overlays your Nepal features, verifies the bundle, and attaches the installable DHIS2 `.zip` + `.sha256` checksum to a GitHub Release.
+GitHub Actions (`.github/workflows/release-capture-app-np.yml`) automatically clones the pinned upstream tag once, builds and verifies both profiles, and publishes **two separate GitHub Releases**:
+
+- **Full Release** (`<tag>`, e.g. `v108.0.0-np.1`, marked Latest) — attaches `capture-app-np-<version>.zip` + `.sha256` (BS date picker, working-list Absolute range BS filter, and dual AD + BS displays).
+- **Minimal Release** (`<tag>-minimal`, e.g. `v108.0.0-np.1-minimal`) — attaches `capture-app-np-<version>-minimal.zip` + `.sha256` (BS date picker, working-list Absolute range BS filter, and pure upstream AD displays).
+
+You can also trigger the workflow manually via **Actions → Release Capture NP (Full & Minimal) → Run workflow** and choose `profile: both` (default), `full`, or `minimal`.
 
 For detailed hook points, architecture, and troubleshooting, see [`nepal/UPGRADE_GUIDE.md`](nepal/UPGRADE_GUIDE.md).

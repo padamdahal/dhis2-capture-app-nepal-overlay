@@ -1,9 +1,10 @@
-name: Release Capture NP (Overlay Build)
+name: Release Capture NP (Full & Minimal)
 
 on:
   push:
     tags:
       - 'v*-np*'
+      - '!v*-minimal'
   workflow_dispatch:
     inputs:
       upstream_tag:
@@ -11,9 +12,18 @@ on:
         required: false
         default: ''
       release_tag:
-        description: 'Optional GitHub Release tag (e.g. v107.9.3-np.1)'
+        description: 'Optional base GitHub Release tag (e.g. v107.9.3-np.1; Minimal uses <tag>-minimal)'
         required: false
         default: ''
+      profile:
+        description: 'Which build profiles to build and release'
+        type: choice
+        required: false
+        default: 'both'
+        options:
+          - both
+          - full
+          - minimal
 
 permissions:
   contents: write
@@ -28,52 +38,159 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
-      - name: Resolve upstream DHIS2 Capture tag
-        id: upstream
+      - name: Resolve upstream DHIS2 Capture tag & release metadata
+        id: config
         run: |
           TAG="${{ inputs.upstream_tag }}"
           if [ -z "$TAG" ]; then
             TAG="$(node -p "require('./nepal/branding.json').upstreamBaseTag")"
           fi
           REPO="$(node -p "require('./nepal/branding.json').upstreamRepo")"
+
+          PROFILE="${{ inputs.profile }}"
+          if [ -z "$PROFILE" ]; then
+            PROFILE="both"
+          fi
+
+          BUILD_FULL="false"
+          BUILD_MINIMAL="false"
+          if [ "$PROFILE" = "both" ] || [ "$PROFILE" = "full" ]; then
+            BUILD_FULL="true"
+          fi
+          if [ "$PROFILE" = "both" ] || [ "$PROFILE" = "minimal" ]; then
+            BUILD_MINIMAL="true"
+          fi
+
+          RAW_RELEASE_TAG="${{ inputs.release_tag }}"
+          if [ -z "$RAW_RELEASE_TAG" ] && [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            RAW_RELEASE_TAG="${{ github.ref_name }}"
+          fi
+
+          PUBLISH_RELEASE="false"
+          FULL_TAG=""
+          MINIMAL_TAG=""
+          if [ -n "$RAW_RELEASE_TAG" ]; then
+            PUBLISH_RELEASE="true"
+            FULL_TAG="${RAW_RELEASE_TAG%-minimal}"
+            MINIMAL_TAG="${FULL_TAG}-minimal"
+          fi
+
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "repo=${REPO}" >> "$GITHUB_OUTPUT"
+          echo "build_full=${BUILD_FULL}" >> "$GITHUB_OUTPUT"
+          echo "build_minimal=${BUILD_MINIMAL}" >> "$GITHUB_OUTPUT"
+          echo "publish_release=${PUBLISH_RELEASE}" >> "$GITHUB_OUTPUT"
+          echo "full_tag=${FULL_TAG}" >> "$GITHUB_OUTPUT"
+          echo "minimal_tag=${MINIMAL_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Install Nepal overlay tooling
         run: npm install --no-audit --no-fund
 
-      - name: Apply Nepal overlay directly from upstream Git tag, build Capture NP ZIP & verify
-        run: npm run build:full -- --repo "${{ steps.upstream.outputs.repo }}" --tag "${{ steps.upstream.outputs.tag }}"
+      - name: Build & verify Capture NP (Full)
+        if: steps.config.outputs.build_full == 'true'
+        run: npm run build:full -- --repo "${{ steps.config.outputs.repo }}" --tag "${{ steps.config.outputs.tag }}"
 
-      - name: Compute checksum & artifact metadata
-        id: bundle
+      - name: Compute Full bundle checksum
+        id: full_bundle
+        if: steps.config.outputs.build_full == 'true'
         run: |
-          ZIP_FILE="$(ls dist/capture-app-np-*.zip | head -n 1)"
+          ZIP_FILE="$(find dist -maxdepth 1 -type f -name 'capture-app-np-*.zip' ! -name '*-minimal.zip' | head -n 1)"
           if [ ! -f "$ZIP_FILE" ]; then
-            echo "Expected ZIP not found in dist/"
+            echo "Expected Full ZIP not found in dist/"
             exit 1
           fi
-          sha256sum "$ZIP_FILE" > "${ZIP_FILE}.sha256"
+          ZIP_NAME="$(basename "$ZIP_FILE")"
+          (cd dist && sha256sum "$ZIP_NAME" > "${ZIP_NAME}.sha256")
           echo "zip_file=${ZIP_FILE}" >> "$GITHUB_OUTPUT"
           echo "sha_file=${ZIP_FILE}.sha256" >> "$GITHUB_OUTPUT"
+          echo "zip_name=${ZIP_NAME}" >> "$GITHUB_OUTPUT"
 
-      - name: Upload DHIS2 Capture NP ZIP artifact
+      - name: Build & verify Capture NP (Minimal)
+        if: steps.config.outputs.build_minimal == 'true'
+        run: npm run build:minimal -- --repo "${{ steps.config.outputs.repo }}" --tag "${{ steps.config.outputs.tag }}"
+
+      - name: Compute Minimal bundle checksum
+        id: minimal_bundle
+        if: steps.config.outputs.build_minimal == 'true'
+        run: |
+          ZIP_FILE="$(find dist -maxdepth 1 -type f -name 'capture-app-np-*-minimal.zip' | head -n 1)"
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "Expected Minimal ZIP not found in dist/"
+            exit 1
+          fi
+          ZIP_NAME="$(basename "$ZIP_FILE")"
+          (cd dist && sha256sum "$ZIP_NAME" > "${ZIP_NAME}.sha256")
+          echo "zip_file=${ZIP_FILE}" >> "$GITHUB_OUTPUT"
+          echo "sha_file=${ZIP_FILE}.sha256" >> "$GITHUB_OUTPUT"
+          echo "zip_name=${ZIP_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Capture NP (Full) workflow artifact
+        if: steps.config.outputs.build_full == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: capture-app-np-bundle
+          name: capture-app-np-full-bundle
           path: |
-            ${{ steps.bundle.outputs.zip_file }}
-            ${{ steps.bundle.outputs.sha_file }}
+            ${{ steps.full_bundle.outputs.zip_file }}
+            ${{ steps.full_bundle.outputs.sha_file }}
 
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+      - name: Upload Capture NP (Minimal) workflow artifact
+        if: steps.config.outputs.build_minimal == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: capture-app-np-minimal-bundle
+          path: |
+            ${{ steps.minimal_bundle.outputs.zip_file }}
+            ${{ steps.minimal_bundle.outputs.sha_file }}
+
+      - name: Publish GitHub Release — Full
+        if: steps.config.outputs.publish_release == 'true' && steps.config.outputs.build_full == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.release_tag != '' && inputs.release_tag || github.ref_name }}
-          name: Capture NP ${{ inputs.release_tag != '' && inputs.release_tag || github.ref_name }}
+          tag_name: ${{ steps.config.outputs.full_tag }}
+          target_commitish: ${{ github.sha }}
+          name: Capture NP ${{ steps.config.outputs.full_tag }} (Full)
+          make_latest: true
           generate_release_notes: true
+          body: |
+            ### Capture NP — Full Release (`${{ steps.config.outputs.tag }}`)
+
+            Includes:
+            - **Capture NP branding & custom icon**
+            - **Bikram Sambat (BS) date picker** across data entry forms, Age/DoB fields, and working-list Date (Absolute range) filters
+            - **Dual AD + BS date displays** (`AD (YYYY-MM-DD BS)`) across lists, profiles, widgets, timelines, filter chips, and read-only views
+
+            Verify download integrity:
+            ```bash
+            sha256sum -c ${{ steps.full_bundle.outputs.zip_name }}.sha256
+            ```
           files: |
-            ${{ steps.bundle.outputs.zip_file }}
-            ${{ steps.bundle.outputs.sha_file }}
+            ${{ steps.full_bundle.outputs.zip_file }}
+            ${{ steps.full_bundle.outputs.sha_file }}
+
+      - name: Publish GitHub Release — Minimal
+        if: steps.config.outputs.publish_release == 'true' && steps.config.outputs.build_minimal == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.config.outputs.minimal_tag }}
+          target_commitish: ${{ github.sha }}
+          name: Capture NP ${{ steps.config.outputs.full_tag }} (Minimal)
+          make_latest: false
+          generate_release_notes: true
+          body: |
+            ### Capture NP — Minimal Release (`${{ steps.config.outputs.tag }}`)
+
+            Includes:
+            - **Capture NP branding & custom icon**
+            - **Bikram Sambat (BS) date picker** across data entry forms, Age/DoB fields, and working-list Date (Absolute range) filters
+            - **Pure upstream AD date displays** (all read-only dual BS date display hooks are skipped)
+
+            Verify download integrity:
+            ```bash
+            sha256sum -c ${{ steps.minimal_bundle.outputs.zip_name }}.sha256
+            ```
+          files: |
+            ${{ steps.minimal_bundle.outputs.zip_file }}
+            ${{ steps.minimal_bundle.outputs.sha_file }}
+
