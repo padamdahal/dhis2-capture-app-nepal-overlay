@@ -1,4 +1,4 @@
-# Capture NP (`capture-app-np`) — Nepal-Only Overlay Repo
+# DHIS2 Capture App Nepal Overlay
 
 This repository stores **only Nepal-specific features, branding, assets, and minimal integration hooks**—never the 100,000+ lines of upstream DHIS2 Capture core.
 
